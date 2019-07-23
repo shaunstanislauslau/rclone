@@ -8,11 +8,39 @@
 # 4 - supported unzip tools are not available
 
 set -e
+# set -x
 
 #when adding a tool to the list make sure to also add it's corresponding command further in the script
 unzip_tools_list=('unzip' '7z' 'busybox')
+RCLONE_INSTALL_PREFIX=${RCLONE_INSTALL_PREFIX}
+RCLONE_INSTALL_FORCE=${RCLONE_INSTALL_FORCE}
 
-usage() { echo "Usage: curl https://rclone.org/install.sh | sudo bash [-s beta]" 1>&2; exit 1; }
+usage() {
+    echo "Usage:
+
+System install:
+
+    $ sudo install.sh [-s beta]
+
+Local (non-privileged user) install:
+
+    $ RCLONE_INSTALL_PREFIX=~/path_to_your_local_installation [RCLONE_INSTALL_FORCE=1] install.sh [-s beta]
+
+ENV options
+
+    RCLONE_INSTALL_PREFIX
+        (str). Path to the install directory. Default: empty
+
+    RCLONE_INSTALL_FORCE
+        (bool). Force installation (skip version check)
+"
+
+    exit 1
+} 1>&2
+
+[ -n "$RCLONE_INSTALL_PREFIX" ] && {
+    echo >&2 "Warning! Local prefixed installation is experimental -- Linux-only"
+}
 
 #check for beta flag
 if [ -n "$1" ] && [ "$1" != "beta" ]; then
@@ -50,6 +78,7 @@ fi
 export XDG_CONFIG_HOME=config
 
 #check installed version of rclone to determine if update is necessary
+if ! [ "$RCLONE_INSTALL_FORCE" ]; then
 version=`rclone --version 2>>errors | head -n 1`
 if [ -z "${install_beta}" ]; then
     current_version=`curl https://downloads.rclone.org/version.txt`
@@ -61,6 +90,10 @@ if [ "$version" = "$current_version" ]; then
     printf "\nThe latest ${install_beta}version of rclone ${version} is already installed.\n\n"
     exit 3
 fi
+else
+    echo >&2 "Warning! Forcing installation"
+fi
+
 
 
 
@@ -147,16 +180,19 @@ cd $unzip_dir/*
 case $OS in
   'linux')
     #binary
-    cp rclone /usr/bin/rclone.new
-    chmod 755 /usr/bin/rclone.new
-    chown root:root /usr/bin/rclone.new
-    mv /usr/bin/rclone.new /usr/bin/rclone
+        usr_grp=
+        [ -z "$RCLONE_INSTALL_PREFIX" ] && usr_grp='root:root'
+        mkdir -p ${RCLONE_INSTALL_PREFIX}/usr/bin
+        cp rclone ${RCLONE_INSTALL_PREFIX}/usr/bin/rclone.new
+        chmod 755 ${RCLONE_INSTALL_PREFIX}/usr/bin/rclone.new
+        [ "$usr_grp" ] && chown root:root ${RCLONE_INSTALL_PREFIX}/usr/bin/rclone.new
+        mv ${RCLONE_INSTALL_PREFIX}/usr/bin/rclone.new ${RCLONE_INSTALL_PREFIX}/usr/bin/rclone
     #manuals
     if ! [ -x "$(command -v mandb)" ]; then
         echo 'mandb not found. The rclone man docs will not be installed.'
     else 
-        mkdir -p /usr/local/share/man/man1
-        cp rclone.1 /usr/local/share/man/man1/
+            mkdir -p ${RCLONE_INSTALL_PREFIX}/usr/local/share/man/man1
+            cp rclone.1 ${RCLONE_INSTALL_PREFIX}/usr/local/share/man/man1/
         mandb
     fi
     ;;
@@ -189,5 +225,8 @@ esac
 version=`rclone --version 2>>errors | head -n 1`
 
 printf "\n${version} has successfully installed."
+[ "$RCLONE_INSTALL_PREFIX" ] && {
+    echo 'RCLONE_INSTALL_PREFIX was used: you may need to adjust your $[MAN]PATH'
+}
 printf '\nNow run "rclone config" for setup. Check https://rclone.org/docs/ for more details.\n\n'
 exit 0
