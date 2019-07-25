@@ -30,6 +30,7 @@ import (
 	"github.com/ncw/rclone/fs/operations"
 	"github.com/ncw/rclone/fs/walk"
 	"github.com/ncw/rclone/fstest"
+	"github.com/ncw/rclone/lib/encoder"
 	"github.com/ncw/rclone/lib/readers"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -530,6 +531,57 @@ func Run(t *testing.T, opt *Opt) {
 		t.Run("FsListRDirNotFound", func(t *testing.T) {
 			defer skipIfNotListR(t)()
 			TestFsListDirNotFound(t)
+		})
+
+		// FsEncoding tests that file name encodings are
+		// working by uploading a series of unusual files
+		// Must be run in an empty directory
+		t.Run("FsEncoding", func(t *testing.T) {
+			skipIfNotOk(t)
+
+			// check no files or dirs as pre-requisite
+			fstest.CheckListingWithPrecision(t, remote, []fstest.Item{}, []string{}, fs.GetModifyWindow(remote))
+
+			for _, test := range []struct {
+				name string
+				path string
+			}{
+				// See lib/encoder/encoder.go for list of things that go here
+				{"control chars", "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F\x7F"},
+				{"dot", "."},
+				{"dot dot", ".."},
+				{"punctuation", "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"},
+				{"leading space", " leading space"},
+				{"leading tilde", "~leading tilde"},
+				{"leading CR", "\rleading CR"},
+				{"leading LF", "\nleading LF"},
+				{"leading HT", "\tleading HT"},
+				{"leading VT", "\vleading VT"},
+				{"trailing space", "trailing space "},
+				{"trailing CR", "trailing CR\r"},
+				{"trailing LF", "trailing LF\n"},
+				{"trailing HT", "trailing HT\t"},
+				{"trailing VT", "trailing VT\v"},
+				{"trailing dot", "trailing dot."},
+				{"invalid UTF-8", "invalid utf-8\xfe"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					// turn raw strings into Standard encoding
+					fileName := encoder.Standard.Encode(test.path)
+					dirName := fileName
+					t.Logf("testing %q", fileName)
+					assert.NoError(t, remote.Mkdir(context.Background(), dirName))
+					file := fstest.Item{
+						ModTime: time.Now(),
+						Path:    dirName + "/" + fileName, // test creating a file and dir with that name
+					}
+					_, o := testPut(context.Background(), t, remote, &file)
+					fstest.CheckListingWithPrecision(t, remote, []fstest.Item{file}, []string{dirName}, fs.GetModifyWindow(remote))
+					assert.NoError(t, o.Remove(context.Background()))
+					assert.NoError(t, remote.Rmdir(context.Background(), dirName))
+					fstest.CheckListingWithPrecision(t, remote, []fstest.Item{}, []string{}, fs.GetModifyWindow(remote))
+				})
+			}
 		})
 
 		// TestFsNewObjectNotFound tests not finding a object
@@ -1472,12 +1524,15 @@ func Run(t *testing.T, opt *Opt) {
 			// TestObjectRemove tests Remove
 			t.Run("ObjectRemove", func(t *testing.T) {
 				skipIfNotOk(t)
+				// remove file1
 				obj := findObject(t, remote, file1.Path)
 				err := obj.Remove(context.Background())
 				require.NoError(t, err)
 				// check listing without modtime as TestPublicLink may change the modtime
 				fstest.CheckListingWithPrecision(t, remote, []fstest.Item{file2}, nil, fs.ModTimeNotSupported)
 			})
+
+			// Just file2 remains for Purge to clean up
 
 			// TestFsPutStream tests uploading files when size is not known in advance
 			t.Run("FsPutStream", func(t *testing.T) {
@@ -1515,6 +1570,7 @@ func Run(t *testing.T, opt *Opt) {
 				// Re-read the object and check again
 				obj = findObject(t, remote, file.Path)
 				file.Check(t, obj, remote.Precision())
+				require.NoError(t, obj.Remove(context.Background()))
 			})
 
 			// TestAbout tests the About optional interface
