@@ -65,6 +65,10 @@ func TestWebDav(t *testing.T) {
 	// Change directory to run the tests
 	err = os.Chdir("../../../backend/webdav")
 	assert.NoError(t, err, "failed to cd to webdav remote")
+	defer func() {
+		err := os.Chdir("../../cmd/serve/webdav")
+		assert.NoError(t, err, "failed to cd to webdav cmd directory")
+	}()
 
 	// Run the webdav tests with an on the fly remote
 	args := []string{"test"}
@@ -97,14 +101,11 @@ var (
 )
 
 func TestHTTPFunction(t *testing.T) {
-	// cd to correct directory for testing
-	err := os.Chdir("../../cmd/serve/webdav")
-	assert.NoError(t, err, "failed to cd to webdav cmd directory")
-
 	// exclude files called hidden.txt and directories called hidden
 	require.NoError(t, filter.Active.AddRule("- hidden.txt"))
 	require.NoError(t, filter.Active.AddRule("- hidden/**"))
 
+	// FIXME this doesn't work because .. no longer works, neither does .
 	// Uses the same test files as http tests but with different golden.
 	f, err := fs.NewFs("../http/testdata/files")
 	assert.NoError(t, err)
